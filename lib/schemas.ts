@@ -18,6 +18,10 @@ export const createProjectSchema = z.object({
   notificationEmails: z.array(z.string().email()).optional().default([])
 });
 
+export const updateProjectEmailsSchema = z.object({
+  notificationEmails: z.array(z.string().email()).optional().default([])
+});
+
 export const repoCheckSchema = z.object({
   owner: z.string().min(1),
   repoName: z.string().min(1)

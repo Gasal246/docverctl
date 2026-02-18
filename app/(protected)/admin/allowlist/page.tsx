@@ -1,8 +1,13 @@
+import type { Metadata } from "next";
 import { AllowlistPageClient } from "@/components/admin/allowlist-page-client";
 import { redirect } from "next/navigation";
 
 import { findAllowedUser } from "@/lib/allowlist";
 import { getAuthSession } from "@/lib/auth";
+
+export const metadata: Metadata = {
+  title: "Allowlist"
+};
 
 export default async function AllowlistPage() {
   const session = await getAuthSession();

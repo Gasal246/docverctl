@@ -10,8 +10,14 @@ const ibmPlexSans = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "DocVerCtl",
-  description: "GitHub-backed documentation management"
+  title: {
+    default: "DocVerCtl",
+    template: "DVC - %s"
+  },
+  description: "GitHub-backed documentation management",
+  icons: {
+    icon: "/favicon.ico"
+  }
 };
 
 export default function RootLayout({

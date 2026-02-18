@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlignJustify,
+  Check,
   ChevronDown,
   ChevronRight,
   Columns2,
@@ -15,16 +16,25 @@ import {
   GitCompareArrows,
   History,
   Loader2,
+  Mail,
   PencilLine,
+  Plus,
   RefreshCcw,
-  Search
+  Search,
+  Trash2,
+  X
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { CustomContextMenu, ContextMenuItem } from "@/components/file-explorer/custom-context-menu";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { isDocx, isPdf } from "@/lib/file-types";
@@ -44,6 +54,7 @@ type Project = {
   name: string;
   repoOwner: string;
   repoName: string;
+  notificationEmails?: string[];
 };
 
 type TreeEntry = {
@@ -58,7 +69,7 @@ type FileState = {
   kind: "text" | "binary";
   path: string;
   name: string;
-  sha: string;
+  sha?: string;
   size: number;
   content?: string;
 };
@@ -129,6 +140,48 @@ function formatCommitOptionLabel(commit: CommitMeta) {
   return `${shortSha(commit.sha)} · ${formatCommitDate(commit.date)} · ${headline}`;
 }
 
+function parseFileInput(rawInput: string) {
+  const normalized = rawInput.trim().replace(/^\/+/, "");
+  if (!normalized) {
+    return { error: "Provide a file name to continue." };
+  }
+
+  const segments = normalized.split("/").filter(Boolean);
+  const fileName = segments.at(-1) ?? "";
+  const isSupported = fileName.endsWith(".md") || fileName.endsWith(".txt");
+
+  if (!isSupported) {
+    return { error: "Only .md and .txt files are supported." };
+  }
+
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    return { error: "Use a valid path without '.' or '..' segments." };
+  }
+
+  return {
+    path: segments.join("/"),
+    name: fileName
+  };
+}
+
+function parseFolderName(rawInput: string) {
+  const normalized = rawInput.trim().replace(/^\/+|\/+$/g, "");
+
+  if (!normalized) {
+    return { error: "Provide a folder name to continue." };
+  }
+
+  if (normalized.includes("..")) {
+    return { error: "Use a valid folder name without '..'." };
+  }
+
+  return { folder: normalized };
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 function IconToolbarButton({
   tooltip,
   children,
@@ -168,16 +221,19 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
   const [diffView, setDiffView] = useState<"side" | "unified">("side");
   const [diffMode, setDiffMode] = useState<DiffMode>("unsaved_vs_last_commit");
   const [markdownViewMode, setMarkdownViewMode] = useState<MarkdownViewMode>("preview");
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    items: ContextMenuItem[];
-  } | null>(null);
+  const [pendingNewFilePath, setPendingNewFilePath] = useState<string | null>(null);
   const [repoNotFoundPrompted, setRepoNotFoundPrompted] = useState(false);
   const [viewerIsAdmin, setViewerIsAdmin] = useState<boolean>(false);
+  const [notificationEmails, setNotificationEmails] = useState<string[]>([]);
+  const [emailsDialogOpen, setEmailsDialogOpen] = useState(false);
+  const [editingEmailIndex, setEditingEmailIndex] = useState<number | null>(null);
+  const [editingEmailValue, setEditingEmailValue] = useState("");
+  const [newEmailValue, setNewEmailValue] = useState("");
+  const [savingNotificationEmails, setSavingNotificationEmails] = useState(false);
 
   const isDirty = loadedFile?.kind === "text" && editedContent !== originalContent;
   const isMarkdownFile = loadedFile?.kind === "text" && loadedFile.path.endsWith(".md");
+  const hasUnsavedNewFile = Boolean(pendingNewFilePath);
 
   const breadcrumbs = useMemo(() => {
     if (!selectedPath) return [] as string[];
@@ -198,6 +254,7 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
     }
 
     setProject(current);
+    setNotificationEmails(current.notificationEmails ?? []);
   }, [projectId]);
 
   const loadViewer = useCallback(async () => {
@@ -425,6 +482,130 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
     }
   }
 
+  async function persistNotificationEmails(
+    nextEmails: string[],
+    successMessage: string
+  ) {
+    setSavingNotificationEmails(true);
+    try {
+      const response = await fetch(`/api/projects/${projectId}/notification-emails`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          notificationEmails: nextEmails
+        })
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to update emails");
+      }
+
+      const updatedEmails = (payload.notificationEmails ?? []) as string[];
+      setNotificationEmails(updatedEmails);
+      setProject((prev) =>
+        prev
+          ? {
+              ...prev,
+              notificationEmails: updatedEmails
+            }
+          : prev
+      );
+      toast.success(successMessage);
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update emails");
+      return false;
+    } finally {
+      setSavingNotificationEmails(false);
+    }
+  }
+
+  function openEmailsDialog() {
+    setEditingEmailIndex(null);
+    setEditingEmailValue("");
+    setNewEmailValue("");
+    setEmailsDialogOpen(true);
+  }
+
+  function closeEmailsDialog() {
+    if (savingNotificationEmails) return;
+    setEditingEmailIndex(null);
+    setEditingEmailValue("");
+    setNewEmailValue("");
+    setEmailsDialogOpen(false);
+  }
+
+  function beginEditEmail(index: number) {
+    setEditingEmailIndex(index);
+    setEditingEmailValue(notificationEmails[index] ?? "");
+  }
+
+  async function saveEditedEmail() {
+    if (editingEmailIndex === null) return;
+
+    const normalized = editingEmailValue.trim().toLowerCase();
+    if (!normalized) {
+      toast.error("Email is required");
+      return;
+    }
+    if (!isValidEmail(normalized)) {
+      toast.error("Enter a valid email");
+      return;
+    }
+    if (notificationEmails.some((item, index) => index !== editingEmailIndex && item === normalized)) {
+      toast.error("Email already exists");
+      return;
+    }
+
+    const next = notificationEmails.map((item, index) =>
+      index === editingEmailIndex ? normalized : item
+    );
+    const saved = await persistNotificationEmails(next, "Email updated");
+    if (saved) {
+      setEditingEmailIndex(null);
+      setEditingEmailValue("");
+    }
+  }
+
+  async function deleteEmail(index: number) {
+    const target = notificationEmails[index];
+    if (!target) return;
+    const confirmed = window.confirm(`Delete email "${target}"?`);
+    if (!confirmed) return;
+
+    const next = notificationEmails.filter((_, currentIndex) => currentIndex !== index);
+    await persistNotificationEmails(next, "Email deleted");
+    if (editingEmailIndex === index) {
+      setEditingEmailIndex(null);
+      setEditingEmailValue("");
+    }
+  }
+
+  async function addEmail() {
+    const normalized = newEmailValue.trim().toLowerCase();
+    if (!normalized) {
+      toast.error("Email is required");
+      return;
+    }
+    if (!isValidEmail(normalized)) {
+      toast.error("Enter a valid email");
+      return;
+    }
+    if (notificationEmails.includes(normalized)) {
+      toast.error("Email already exists");
+      return;
+    }
+
+    const next = [...notificationEmails, normalized];
+    const saved = await persistNotificationEmails(next, "Email added");
+    if (saved) {
+      setNewEmailValue("");
+    }
+  }
+
   useEffect(() => {
     async function bootstrap() {
       try {
@@ -475,8 +656,18 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
 
   async function saveFile() {
     if (!loadedFile || loadedFile.kind !== "text") return;
+    const isDraftNewFile = !loadedFile.sha;
+    const trimmedContent = editedContent.trim();
 
-    const message = window.prompt("Commit message", `Update ${loadedFile.path} from DocVerCtl`);
+    if (isDraftNewFile && !trimmedContent) {
+      toast.error("Add content before saving this new file.");
+      return;
+    }
+
+    const message = window.prompt(
+      "Commit message",
+      `${isDraftNewFile ? "Create" : "Update"} ${loadedFile.path} from DocVerCtl`
+    );
     if (!message) return;
 
     setSaving(true);
@@ -500,6 +691,9 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
       }
 
       toast.success(`Committed changes (${payload.commitSha.slice(0, 7)})`);
+      if (pendingNewFilePath === loadedFile.path) {
+        setPendingNewFilePath(null);
+      }
       await loadFile(loadedFile.path);
       await refreshTree();
     } catch (error) {
@@ -510,37 +704,76 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
   }
 
   async function createFileInDirectory(basePath: string) {
-    const name = window.prompt("File name", "new-file.md");
-    if (!name) return;
-
-    const path = joinPath(basePath, name.trim());
-
-    const response = await fetch(`/api/projects/${projectId}/file`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        path,
-        content: "",
-        message: `Create ${path} from DocVerCtl`
-      })
-    });
-
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error ?? "Failed to create file");
+    if (hasUnsavedNewFile) {
+      toast.error("Save the current new file before opening more actions.");
+      return;
     }
 
-    toast.success("File created");
-    await refreshTree();
+    const name = window.prompt("File name", "new-file.md");
+    if (!name) return;
+    const parsed = parseFileInput(name);
+    if ("error" in parsed) {
+      toast.error(parsed.error);
+      return;
+    }
+    const path = joinPath(basePath, parsed.path);
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/file?path=${encodeURIComponent(path)}`, {
+        cache: "no-store"
+      });
+      if (response.ok) {
+        toast.error("A file with this path already exists.");
+        return;
+      }
+      if (response.status !== 404) {
+        throw new Error("Could not validate file path");
+      }
+      setSelectedPath(path);
+      setLoadedFile({
+        kind: "text",
+        path,
+        name: parsed.name,
+        size: 0
+      });
+      setOriginalContent("");
+      setEditedContent("");
+      setMarkdownViewMode(path.endsWith(".md") ? "preview" : "edit");
+      setFileHistory(null);
+      setCommitComparison(null);
+      setBaseCommitSha("");
+      setHeadCommitSha("");
+      setShowDiff(false);
+      setPendingNewFilePath(path);
+      toast.success("New file draft opened. Add content, then save to commit.");
+    } catch {
+      toast.error("Could not validate the file path right now.");
+    }
   }
 
   async function createFolderInDirectory(basePath: string) {
+    if (hasUnsavedNewFile) {
+      toast.error("Save the current new file before opening more actions.");
+      return;
+    }
+
     const folderName = window.prompt("Folder name", "new-folder");
     if (!folderName) return;
+    const parsed = parseFolderName(folderName);
+    if ("error" in parsed) {
+      toast.error(parsed.error);
+      return;
+    }
 
-    const path = joinPath(basePath, `${folderName.trim()}/.keep`);
+    const readmePath = joinPath(basePath, `${parsed.folder}/README.md`);
+    const readmeContent = window.prompt(
+      `Starter content for ${parsed.folder}/README.md`,
+      "Describe this folder."
+    );
+    if (!readmeContent || !readmeContent.trim()) {
+      toast.error("A folder needs a README.md with content before it can be saved.");
+      return;
+    }
 
     const response = await fetch(`/api/projects/${projectId}/file`, {
       method: "POST",
@@ -548,9 +781,9 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        path,
-        content: "",
-        message: `Create folder ${folderName.trim()} from DocVerCtl`
+        path: readmePath,
+        content: readmeContent,
+        message: `Create folder ${parsed.folder} from DocVerCtl`
       })
     });
 
@@ -559,7 +792,7 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
       throw new Error(payload.error ?? "Failed to create folder");
     }
 
-    toast.success("Folder created");
+    toast.success(`Folder created with ${parsed.folder}/README.md`);
     await refreshTree();
   }
 
@@ -658,81 +891,19 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
     await refreshTree();
   }
 
-  async function openContextMenu(
-    event: React.MouseEvent,
-    entry: TreeEntry | null,
-    scope: "tree" | "editor"
-  ) {
+  function blockContextMenuIfDraft(event: React.MouseEvent) {
+    if (!hasUnsavedNewFile) return false;
     event.preventDefault();
+    toast.error("Save the new file draft before opening the context menu.");
+    return true;
+  }
 
-    let items: ContextMenuItem[] = [];
-
-    if (scope === "tree") {
-      const baseDir = entry ? (entry.type === "dir" ? entry.path : getParentPath(entry.path)) : "";
-
-      items = [
-        {
-          label: "New File",
-          onClick: () => void createFileInDirectory(baseDir)
-        },
-        {
-          label: "New Folder",
-          onClick: () => void createFolderInDirectory(baseDir)
-        },
-        {
-          label: "Rename / Move",
-          onClick: () => {
-            if (entry) void renamePath(entry);
-          },
-          disabled: !entry
-        },
-        {
-          label: "Delete",
-          onClick: () => {
-            if (entry) void deletePath(entry);
-          },
-          disabled: !entry
-        },
-        {
-          label: "Refresh",
-          onClick: () => void refreshTree()
-        }
-      ];
+  async function runTreeAction(action: () => Promise<void>) {
+    try {
+      await action();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not complete this action");
     }
-
-    if (scope === "editor") {
-      items = [
-        {
-          label: "Copy",
-          onClick: async () => {
-            const selected = window.getSelection()?.toString() ?? "";
-            if (!selected) return;
-            await navigator.clipboard.writeText(selected);
-            toast.success("Copied to clipboard");
-          }
-        },
-        {
-          label: "Paste",
-          onClick: async () => {
-            if (loadedFile?.kind !== "text") return;
-            const text = await navigator.clipboard.readText();
-            setEditedContent((prev) => `${prev}${text}`);
-          },
-          disabled: loadedFile?.kind !== "text"
-        },
-        {
-          label: "Save",
-          onClick: () => void saveFile(),
-          disabled: !isDirty || saving
-        }
-      ];
-    }
-
-    setContextMenu({
-      x: event.clientX,
-      y: event.clientY,
-      items
-    });
   }
 
   function renderNodes(basePath: string, depth = 0) {
@@ -747,51 +918,94 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
 
         return (
           <div key={entry.path}>
-            <button
-              className={`flex w-full items-center gap-1 rounded px-2 py-1 text-left text-sm hover:bg-accent ${
-                isSelected ? "bg-accent" : ""
-              }`}
-              style={{ paddingLeft: `${depth * 14 + 8}px` }}
-              onClick={() => {
-                if (isFolder) {
-                  void toggleFolder(entry.path);
-                  return;
-                }
+            <ContextMenu>
+              <ContextMenuTrigger
+                asChild
+                onContextMenu={(event) => {
+                  void blockContextMenuIfDraft(event);
+                }}
+              >
+                <button
+                  className={`flex w-full items-center gap-1 rounded px-2 py-1 text-left text-sm hover:bg-accent ${
+                    isSelected ? "bg-accent" : ""
+                  }`}
+                  style={{ paddingLeft: `${depth * 14 + 8}px` }}
+                  onClick={() => {
+                    if (isFolder) {
+                      void toggleFolder(entry.path);
+                      return;
+                    }
 
-                if (isDirty) {
-                  const continueOpen = window.confirm(
-                    "You have unsaved changes. Continue and discard them?"
-                  );
-                  if (!continueOpen) return;
-                }
+                    if (pendingNewFilePath && pendingNewFilePath !== entry.path) {
+                      const discardDraft = window.confirm(
+                        "You have an unsaved new file draft. Continue and discard it?"
+                      );
+                      if (!discardDraft) return;
+                      setPendingNewFilePath(null);
+                    }
 
-                setSelectedPath(entry.path);
-                void loadFile(entry.path);
-              }}
-              onContextMenu={(event) => void openContextMenu(event, entry, "tree")}
-            >
-              {isFolder ? (
-                isExpanded ? (
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                ) : (
-                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                )
-              ) : (
-                <span className="w-3.5" />
-              )}
+                    if (isDirty) {
+                      const continueOpen = window.confirm(
+                        "You have unsaved changes. Continue and discard them?"
+                      );
+                      if (!continueOpen) return;
+                    }
 
-              {isFolder ? (
-                isExpanded ? (
-                  <FolderOpen className="h-4 w-4 text-sky-700" />
-                ) : (
-                  <Folder className="h-4 w-4 text-sky-700" />
-                )
-              ) : (
-                <File className="h-4 w-4 text-muted-foreground" />
-              )}
+                    setSelectedPath(entry.path);
+                    void loadFile(entry.path);
+                  }}
+                >
+                  {isFolder ? (
+                    isExpanded ? (
+                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                    )
+                  ) : (
+                    <span className="w-3.5" />
+                  )}
 
-              <span className="truncate">{entry.name}</span>
-            </button>
+                  {isFolder ? (
+                    isExpanded ? (
+                      <FolderOpen className="h-4 w-4 text-sky-700" />
+                    ) : (
+                      <Folder className="h-4 w-4 text-sky-700" />
+                    )
+                  ) : (
+                    <File className="h-4 w-4 text-muted-foreground" />
+                  )}
+
+                  <span className="truncate">{entry.name}</span>
+                </button>
+              </ContextMenuTrigger>
+              {!hasUnsavedNewFile ? (
+                <ContextMenuContent>
+                  <ContextMenuItem
+                    onSelect={() =>
+                      void runTreeAction(() =>
+                        createFileInDirectory(isFolder ? entry.path : getParentPath(entry.path))
+                      )
+                    }
+                  >
+                    New File
+                  </ContextMenuItem>
+                  {isFolder ? (
+                    <ContextMenuItem onSelect={() => void runTreeAction(() => createFolderInDirectory(entry.path))}>
+                      New Folder
+                    </ContextMenuItem>
+                  ) : null}
+                  <ContextMenuItem onSelect={() => void runTreeAction(() => renamePath(entry))}>
+                    Rename / Move
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={() => void runTreeAction(() => deletePath(entry))}>
+                    {isFolder ? "Delete Folder" : "Delete File"}
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={() => void runTreeAction(async () => refreshTree())}>
+                    Refresh
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              ) : null}
+            </ContextMenu>
 
             {isFolder && isExpanded ? <div>{renderNodes(entry.path, depth + 1)}</div> : null}
           </div>
@@ -827,50 +1041,81 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
 
   return (
     <section className="flex h-[calc(100vh-56px)] w-full">
-      <aside
-        className="w-full max-w-sm border-r bg-card"
-        onContextMenu={(event) => void openContextMenu(event, null, "tree")}
-      >
-        <div className="flex items-center gap-2 border-b p-3">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-8"
-              placeholder="Search loaded tree"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-          <Button size="icon" variant="outline" onClick={() => void refreshTree()}>
-            <RefreshCcw className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="border-b px-3 py-2 text-xs text-muted-foreground">
-          {project ? `${project.name} · ${project.repoOwner}/${project.repoName}` : "Loading project..."}
-        </div>
-
-        <div className="h-[calc(100%-93px)] overflow-y-auto p-2">
-          {loadingTree ? (
-            <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading tree...
+      <ContextMenu>
+        <ContextMenuTrigger
+          asChild
+          onContextMenu={(event) => {
+            void blockContextMenuIfDraft(event);
+          }}
+        >
+          <aside className="w-full max-w-sm border-r bg-card">
+            <div className="flex items-center gap-2 border-b p-3">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  className="pl-8"
+                  placeholder="Search loaded tree"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </div>
+              <Button size="icon" variant="outline" onClick={() => void refreshTree()}>
+                <RefreshCcw className="h-4 w-4" />
+              </Button>
             </div>
-          ) : (
-            <div>{renderNodes("")}</div>
-          )}
-        </div>
-      </aside>
 
-      <main
-        className="flex-1 overflow-hidden"
-        onContextMenu={(event) => void openContextMenu(event, null, "editor")}
-      >
+            <div className="border-b px-3 py-2 text-xs text-muted-foreground">
+              {project ? `${project.name} · ${project.repoOwner}/${project.repoName}` : "Loading project..."}
+            </div>
+            {hasUnsavedNewFile ? (
+              <div className="border-b px-3 py-2 text-xs text-amber-700">
+                A new file draft is open. Save it to enable context menu actions.
+              </div>
+            ) : null}
+
+            <div className="h-[calc(100%-93px)] overflow-y-auto p-2">
+              {loadingTree ? (
+                <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading tree...
+                </div>
+              ) : (
+                <div>{renderNodes("")}</div>
+              )}
+            </div>
+          </aside>
+        </ContextMenuTrigger>
+        {!hasUnsavedNewFile ? (
+          <ContextMenuContent>
+            <ContextMenuItem onSelect={() => void runTreeAction(() => createFileInDirectory(""))}>
+              New File
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void runTreeAction(() => createFolderInDirectory(""))}>
+              New Folder
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void runTreeAction(async () => refreshTree())}>
+              Refresh
+            </ContextMenuItem>
+          </ContextMenuContent>
+        ) : null}
+      </ContextMenu>
+
+      <main className="flex-1 overflow-hidden">
         <div className="flex items-center justify-between border-b px-4 py-2">
           <div className="truncate text-sm text-muted-foreground">
             {breadcrumbs.length ? breadcrumbs.join(" / ") : "No file selected"}
           </div>
           <TooltipProvider delayDuration={120}>
           <div className="flex items-center gap-2">
+            {viewerIsAdmin ? (
+              <IconToolbarButton
+                variant="outline"
+                tooltip="User Emails"
+                onClick={() => openEmailsDialog()}
+                disabled={savingNotificationEmails}
+              >
+                <Mail className="h-4 w-4" />
+              </IconToolbarButton>
+            ) : null}
             {loadedFile?.kind === "text" ? (
               <>
                 <IconToolbarButton
@@ -1108,14 +1353,135 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
           )}
         </div>
       </main>
-
-      {contextMenu ? (
-        <CustomContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          items={contextMenu.items}
-          onClose={() => setContextMenu(null)}
-        />
+      {emailsDialogOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-lg border bg-background shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <div>
+                <h2 className="text-sm font-semibold">User Emails</h2>
+                <p className="text-xs text-muted-foreground">
+                  Add, edit, or delete notification recipients for this project.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                onClick={() => closeEmailsDialog()}
+                disabled={savingNotificationEmails}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="space-y-2 border-b p-4">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={newEmailValue}
+                  onChange={(event) => setNewEmailValue(event.target.value)}
+                  placeholder="Add email (name@example.com)"
+                  disabled={savingNotificationEmails}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void addEmail()}
+                  disabled={savingNotificationEmails}
+                >
+                  {savingNotificationEmails ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                  Add Email
+                </Button>
+              </div>
+            </div>
+            <div className="max-h-[45vh] space-y-2 overflow-y-auto p-4">
+              {notificationEmails.length === 0 ? (
+                <p className="rounded border border-dashed p-3 text-sm text-muted-foreground">
+                  No user emails have been added for notifications.
+                </p>
+              ) : (
+                notificationEmails.map((email, index) => (
+                  <div key={`${email}-${index}`} className="flex items-center gap-2 rounded border p-2">
+                    {editingEmailIndex === index ? (
+                      <>
+                        <Input
+                          value={editingEmailValue}
+                          onChange={(event) => setEditingEmailValue(event.target.value)}
+                          placeholder="name@example.com"
+                          disabled={savingNotificationEmails}
+                        />
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="h-8 w-8"
+                          onClick={() => void saveEditedEmail()}
+                          disabled={savingNotificationEmails}
+                        >
+                          {savingNotificationEmails ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Check className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          onClick={() => {
+                            setEditingEmailIndex(null);
+                            setEditingEmailValue("");
+                          }}
+                          disabled={savingNotificationEmails}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex-1 truncate text-sm">{email}</span>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="h-8 w-8"
+                          onClick={() => beginEditEmail(index)}
+                          disabled={savingNotificationEmails}
+                        >
+                          <PencilLine className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="h-8 w-8"
+                          onClick={() => void deleteEmail(index)}
+                          disabled={savingNotificationEmails}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex justify-end border-t px-4 py-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => closeEmailsDialog()}
+                disabled={savingNotificationEmails}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </section>
   );
