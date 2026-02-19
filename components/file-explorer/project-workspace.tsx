@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { isDocx, isPdf } from "@/lib/file-types";
+import { isDocx, isEditableText, isPdf } from "@/lib/file-types";
 
 const MonacoEditor = dynamic(
   async () => (await import("@monaco-editor/react")).Editor,
@@ -148,10 +148,10 @@ function parseFileInput(rawInput: string) {
 
   const segments = normalized.split("/").filter(Boolean);
   const fileName = segments.at(-1) ?? "";
-  const isSupported = fileName.endsWith(".md") || fileName.endsWith(".txt");
+  const isSupported = isEditableText(fileName);
 
   if (!isSupported) {
-    return { error: "Only .md and .txt files are supported." };
+    return { error: "Only .md, .txt, .js, and .ts files are supported." };
   }
 
   if (segments.some((segment) => segment === "." || segment === "..")) {
@@ -176,6 +176,13 @@ function parseFolderName(rawInput: string) {
   }
 
   return { folder: normalized };
+}
+
+function monacoLanguageForPath(path: string) {
+  if (path.endsWith(".md")) return "markdown";
+  if (path.endsWith(".js")) return "javascript";
+  if (path.endsWith(".ts")) return "typescript";
+  return "plaintext";
 }
 
 function isValidEmail(value: string) {
@@ -1287,7 +1294,7 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
                     height="100%"
                     original={diffOriginalContent}
                     modified={diffModifiedContent}
-                    language={loadedFile.path.endsWith(".md") ? "markdown" : "plaintext"}
+                    language={monacoLanguageForPath(loadedFile.path)}
                     options={{
                       readOnly: true,
                       renderSideBySide: diffView === "side",
@@ -1309,7 +1316,7 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
                 <MonacoEditor
                   height="100%"
                   value={editedContent}
-                  language={loadedFile.path.endsWith(".md") ? "markdown" : "plaintext"}
+                  language={monacoLanguageForPath(loadedFile.path)}
                   onChange={(value) => setEditedContent(value ?? "")}
                   options={{
                     minimap: { enabled: false },

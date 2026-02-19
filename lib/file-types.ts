@@ -1,4 +1,4 @@
-const editableExtensions = new Set(["md", "txt"]);
+const editableExtensions = new Set(["md", "txt", "js", "ts"]);
 
 function ext(path: string) {
   const last = path.split(".").pop();
