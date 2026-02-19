@@ -46,7 +46,7 @@ const ContextMenuSubContent = React.forwardRef<
     <ContextMenuPrimitive.SubContent
       ref={ref}
       className={cn(
-        "bg-background/70 text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 min-w-32 origin-[--radix-context-menu-content-transform-origin] overflow-hidden rounded-xl border border-white/25 p-1 shadow-[0_10px_35px_rgba(0,0,0,0.22)] backdrop-blur-xl supports-[backdrop-filter]:bg-background/55",
+        "bg-popover/85 text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 min-w-32 origin-[--radix-context-menu-content-transform-origin] overflow-hidden rounded-xl border border-border/70 p-1 shadow-[0_10px_35px_rgba(0,0,0,0.22)] backdrop-blur-xl supports-[backdrop-filter]:bg-popover/75",
         className
       )}
       {...props}
@@ -62,7 +62,7 @@ const ContextMenuContent = React.forwardRef<
     <ContextMenuPrimitive.Content
       ref={ref}
       className={cn(
-        "bg-background/70 text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 z-50 min-w-40 origin-[--radix-context-menu-content-transform-origin] overflow-hidden rounded-xl border border-white/25 p-1 shadow-[0_10px_35px_rgba(0,0,0,0.22)] backdrop-blur-xl supports-[backdrop-filter]:bg-background/55",
+        "bg-popover/85 text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 z-50 min-w-40 origin-[--radix-context-menu-content-transform-origin] overflow-hidden rounded-xl border border-border/70 p-1 shadow-[0_10px_35px_rgba(0,0,0,0.22)] backdrop-blur-xl supports-[backdrop-filter]:bg-popover/75",
         className
       )}
       {...props}

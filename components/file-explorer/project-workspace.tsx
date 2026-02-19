@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useThemeMode } from "@/components/providers/theme-provider";
 import { isDocx, isEditableText, isPdf } from "@/lib/file-types";
 
 const MonacoEditor = dynamic(
@@ -207,6 +208,7 @@ function IconToolbarButton({
 }
 
 export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
+  const { resolvedTheme } = useThemeMode();
   const [project, setProject] = useState<Project | null>(null);
   const [treeMap, setTreeMap] = useState<Record<string, TreeEntry[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set([""]));
@@ -974,9 +976,9 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
 
                   {isFolder ? (
                     isExpanded ? (
-                      <FolderOpen className="h-4 w-4 text-sky-700" />
+                      <FolderOpen className="h-4 w-4 text-primary" />
                     ) : (
-                      <Folder className="h-4 w-4 text-sky-700" />
+                      <Folder className="h-4 w-4 text-primary" />
                     )
                   ) : (
                     <File className="h-4 w-4 text-muted-foreground" />
@@ -1045,6 +1047,7 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
     diffMode === "compare_any_two_commits" ? commitComparison?.head : fileHistory?.latest;
   const canUseCommitComparison = (fileHistory?.commits.length ?? 0) >= 2;
   const isDiffLoading = loadingHistory || loadingCommitComparison;
+  const editorTheme = resolvedTheme === "dark" ? "vs-dark" : "vs";
 
   return (
     <section className="flex h-[calc(100vh-56px)] w-full">
@@ -1075,7 +1078,7 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
               {project ? `${project.name} · ${project.repoOwner}/${project.repoName}` : "Loading project..."}
             </div>
             {hasUnsavedNewFile ? (
-              <div className="border-b px-3 py-2 text-xs text-amber-700">
+              <div className="border-b px-3 py-2 text-xs text-muted-foreground">
                 A new file draft is open. Save it to enable context menu actions.
               </div>
             ) : null}
@@ -1292,6 +1295,7 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
                 ) : (
                   <MonacoDiffEditor
                     height="100%"
+                    theme={editorTheme}
                     original={diffOriginalContent}
                     modified={diffModifiedContent}
                     language={monacoLanguageForPath(loadedFile.path)}
@@ -1306,7 +1310,7 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
             ) : (
               isMarkdownFile && markdownViewMode === "preview" ? (
                 <div className="h-full overflow-y-auto p-6">
-                  <article className="prose prose-slate mx-auto max-w-4xl dark:prose-invert prose-headings:font-semibold prose-table:block prose-table:w-full prose-table:overflow-x-auto prose-th:border prose-td:border prose-th:px-3 prose-td:px-3 prose-th:py-2 prose-td:py-2 prose-pre:rounded-md prose-pre:bg-slate-950 prose-code:before:content-none prose-code:after:content-none">
+                  <article className="prose prose-slate mx-auto max-w-4xl dark:prose-invert prose-headings:font-semibold prose-table:block prose-table:w-full prose-table:overflow-x-auto prose-th:border prose-td:border prose-th:px-3 prose-td:px-3 prose-th:py-2 prose-td:py-2 prose-pre:rounded-md prose-pre:bg-muted prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {editedContent || "_Empty markdown file_"}
                     </ReactMarkdown>
@@ -1315,6 +1319,7 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
               ) : (
                 <MonacoEditor
                   height="100%"
+                  theme={editorTheme}
                   value={editedContent}
                   language={monacoLanguageForPath(loadedFile.path)}
                   onChange={(value) => setEditedContent(value ?? "")}

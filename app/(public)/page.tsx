@@ -16,7 +16,7 @@ export default async function HomePage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-slate-100 to-cyan-100 px-6">
+    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-muted/30 to-accent/40 px-6">
       <section className="w-full max-w-xl rounded-2xl border bg-card p-10 shadow-sm">
         <p className="mb-3 text-xs uppercase tracking-[0.2em] text-muted-foreground">
           Document Version Control ( Doc-Ver-Ctl )
